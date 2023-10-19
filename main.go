@@ -4,7 +4,6 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"sort"
@@ -57,7 +56,7 @@ func getDirData(path string) (DirData, error) {
 	// ファイルを開く
 	file, err := os.Open(path)
 	if err != nil {
-		return DirData{}, err
+		return DirData{}, nil
 	}
 	defer file.Close()
 
@@ -91,7 +90,7 @@ func checkFile(dirData DirData, path string) (DirData, error) {
 			} else {
 				// ファイルの情報を更新する
 				dirData.Files[i].Date = info.ModTime().String()
-				dirData.Files[i].Hash, err = calcHash(path)
+				dirData.Files[i].Hash, _ = calcHash(path)
 				return dirData, nil
 			}
 		}
@@ -118,45 +117,6 @@ func removeFile(dirData DirData, path string) (DirData, error) {
 		}
 	}
 	return dirData, nil
-}
-
-// results.jsonがなかった場合、新規に作成する
-func createDirData(dir string) error {
-	files, err := os.ReadDir(dir)
-	if err != nil {
-		return err
-	}
-	dirData := DirData{}
-	for _, f := range files {
-		if f.IsDir() {
-			continue
-		}
-		info, err := os.Stat(dir + "/" + f.Name())
-		if err != nil {
-			return err
-		}
-		hash, err := calcHash(dir + "/" + f.Name())
-		if err != nil {
-			return err
-		}
-
-		dirData.Files = append(dirData.Files, File{
-			Path: dir + "/" + f.Name(),
-			Size: info.Size(),
-			Date: info.ModTime().String(),
-			Hash: hash,
-		})
-		// DirDataをJSONに変換する
-		dirDataJSON, err := json.Marshal(dirData)
-		if err != nil {
-			return err
-		}
-		// results.jsonを作成する
-		if err := os.WriteFile(dir+"/results.json", dirDataJSON, 0666); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // DirDatasをDirDatas.jsonに書き込む
@@ -191,13 +151,13 @@ func removeSameHash(all []DirData) {
 		})
 		// 連続するハッシュ値が同じファイルのうち最新の更新日付のものを残して削除する
 		removed := false
-		fmt.Println(files)
 		for i := 0; i < len(files)-1; i++ {
 			if files[i].Hash == files[i+1].Hash {
-				fmt.Println("!!!!!!!!!!!!!!!!!!!!!!!!!!\n", files[i].Path, files[i+1].Path)
 				if files[i].Date < files[i+1].Date {
+					os.Remove(files[i].Path)
 					files = append(files[:i], files[i+1:]...)
 				} else {
+					os.Remove(files[i+1].Path)
 					files = append(files[:i+1], files[i+2:]...)
 				}
 				removed = true
@@ -213,14 +173,7 @@ func removeSameHash(all []DirData) {
 
 // 単一ディレクトリの処理
 func processDir(dir string) error {
-	// results.jsonがなかった場合、新規に作成する
-	if _, err := os.Stat(dir + "/results.json"); err != nil {
-		if err := createDirData(dir); err != nil {
-			return nil
-		}
-	}
-
-	// results.jsonを取得する
+	// results.jsonを取得する（存在しない場合は空データが返る）
 	dirData, err := getDirData(dir + "/results.json")
 	if err != nil {
 		return err
@@ -235,13 +188,7 @@ func processDir(dir string) error {
 		if f.IsDir() {
 			continue
 		}
-		// ファイルの存在を確認する
-		if _, err := os.Stat(dir + "/" + f.Name()); err != nil {
-			// ファイルが存在しない場合、results.jsonから削除する
-			dirData, err = removeFile(dirData, dir+"/"+f.Name())
-			if err != nil {
-				return err
-			}
+		if f.Name() == "results.json" {
 			continue
 		}
 		// ファイルが存在する場合、results.jsonに記録されているか確認する
@@ -249,6 +196,12 @@ func processDir(dir string) error {
 		if err != nil {
 			return err
 		}
+	}
+
+	// DirDataにあって実際には存在しないファイルの情報をDirDataから削除する
+	dirData, err = removeFile(dirData, dir)
+	if err != nil {
+		return err
 	}
 
 	// results.jsonを更新する
@@ -297,4 +250,11 @@ func main() {
 		all = append(all, DirData)
 	}
 	removeSameHash(all)
+
+	// DirDataに削除したファイルの情報が残っているので削除する
+	for _, dir := range config.Dirs {
+		if err := processDir(dir); err != nil {
+			panic(err)
+		}
+	}
 }
