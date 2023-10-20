@@ -4,6 +4,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"sort"
@@ -184,7 +185,8 @@ func processDir(dir string) error {
 	if err != nil {
 		return err
 	}
-	for _, f := range files {
+	for i, f := range files {
+		fmt.Println("processing", i+1, "of", len(files), "in", dir)
 		if f.IsDir() {
 			continue
 		}
@@ -234,6 +236,7 @@ func main() {
 	}
 
 	// 各ディレクトリのresults.jsonを更新する
+	fmt.Println("pre-processing")
 	for _, dir := range config.Dirs {
 		if err := processDir(dir); err != nil {
 			panic(err)
@@ -241,6 +244,7 @@ func main() {
 	}
 
 	// 全てのresults.jsonからFileハッシュ値が同じものを削除する
+	fmt.Println("finding same hash")
 	all := []DirData{}
 	for _, dir := range config.Dirs {
 		DirData, err := getDirData(dir + "/results.json")
@@ -252,6 +256,7 @@ func main() {
 	removeSameHash(all)
 
 	// DirDataに削除したファイルの情報が残っているので削除する
+	fmt.Println("post-processing")
 	for _, dir := range config.Dirs {
 		if err := processDir(dir); err != nil {
 			panic(err)
